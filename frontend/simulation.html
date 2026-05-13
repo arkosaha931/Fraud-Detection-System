@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+  <meta charset="UTF-8">
+
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0">
+
+  <title>FraudLens Payment Simulator</title>
+
+  <link rel="stylesheet"
+    href="simulation.css">
+
+  
+
+  <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+</head>
+
+<body>
+
+  <div class="container">
+
+    
+
+    <div class="left">
+
+      <div class="blur blur1"></div>
+      <div class="blur blur2"></div>
+
+      <div class="cards">
+
+        
+
+        <div class="card card1">
+
+          <div class="top">
+            <h2>VISA</h2>
+            <i class="fa-solid fa-wifi"></i>
+          </div>
+
+          <div class="chip"></div>
+
+          <div class="number">
+            4403 4438 4338 9098
+          </div>
+
+        </div>
+
+        
+
+        <div class="card card2">
+
+          <div class="top">
+            <h2>VISA</h2>
+            <i class="fa-solid fa-wifi"></i>
+          </div>
+
+          <div class="chip"></div>
+
+          <div class="number">
+            2207 8822 7733 1122
+          </div>
+
+        </div>
+
+        
+
+        <div class="card card3">
+
+          <div class="top">
+            <h2>VISA</h2>
+            <i class="fa-solid fa-wifi"></i>
+          </div>
+
+          <div class="chip"></div>
+
+          <div class="number">
+            9911 4433 8877 2299
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    
+
+    <div class="right">
+
+      <div class="header">
+
+        <h1>Payment Details</h1>
+
+        <a href="#">
+          FraudLens AI
+        </a>
+
+      </div>
+
+     
+
+      <div class="methods">
+
+        
+
+        <button class="method-btn active"
+          onclick="showUPI(event)">
+
+          Google Pay
+
+        </button>
+
+        
+
+        <button class="method-btn"
+          onclick="showNetBanking(event)">
+
+          Net Banking
+
+        </button>
+
+
+        <button class="method-btn"
+          onclick="showCash(event)">
+
+          Cash Withdraw
+
+        </button>
+
+        
+
+        <button class="method-btn"
+          onclick="showCard(event)">
+
+          <i class="fa-solid fa-credit-card"></i>
+
+          Card
+
+        </button>
+
+      </div>
+
+      <div class="line">
+
+        <span>Secure Payment</span>
+
+      </div>
+
+
+      <form>
+
+
+        <input type="hidden"
+          id="type"
+          value="Google Pay">
+
+       
+
+        <div id="upi-form">
+
+          <label>UPI ID</label>
+
+          <input type="text"
+            placeholder="example@upi">
+
+          <label>Mobile Number</label>
+
+          <input type="text"
+            placeholder="+91 9876543210">
+
+          <label>UPI PIN</label>
+
+          <input type="password"
+            placeholder="Enter UPI PIN">
+
+         
+        </div>
+
+      
+
+        <div id="netbanking-form"
+          style="display:none;">
+
+          <label>Bank Name</label>
+
+          <input type="text"
+            placeholder="Enter Bank Name">
+
+          <label>Account Holder Name</label>
+
+          <input type="text"
+            placeholder="Enter Account Holder Name">
+
+          <label>Account Number</label>
+
+          <input type="text"
+            placeholder="Enter Account Number">
+
+          <label>IFSC Code</label>
+
+          <input type="text"
+            placeholder="Enter IFSC Code">
+
+          <label> Password</label>
+
+          <input type="password"
+            placeholder="Enter Password">
+
+        </div>
+
+
+        <div id="cash-form"
+          style="display:none;">
+
+          <label>ATM Card Number</label>
+
+          <input type="text"
+            placeholder="Enter ATM Card Number">
+
+          <label>Account Holder Name</label>
+
+          <input type="text"
+            placeholder="Enter Name">
+
+          <label>ATM PIN</label>
+
+          <input type="password"
+            placeholder="Enter ATM PIN">
+
+        </div>
+
+
+        <div id="card-form"
+          style="display:none;">
+
+          <label>Card Number</label>
+
+          <input type="text"
+            placeholder="5878 •••• •••• 2207">
+
+          <label>Card Holder Name</label>
+
+          <input type="text"
+            placeholder="Cameron Williamson">
+
+          <div class="row">
+
+            <div class="col">
+
+              <label>Expiry Date</label>
+
+              <input type="text"
+                placeholder="MM / YY">
+
+            </div>
+
+            <div class="col">
+
+              <label>CVV/CVC</label>
+
+              <input type="password"
+                placeholder="***">
+
+            </div>
+
+          </div>
+
+        </div>
+
+      
+        <label>Enter Amount</label>
+
+        <input type="number"
+          id="amount"
+          placeholder="Enter Amount">
+
+       
+
+        <button type="button"
+          class="pay"
+          onclick="checkTransaction()">
+
+          Proceed Payment
+
+        </button>
+
+       
+
+        <div id="result"></div>
+
+      </form>
+
+    </div>
+
+  </div>
+
+ 
+
+  <script src="simulation.js"></script>
+
+</body>
+
+</html>
