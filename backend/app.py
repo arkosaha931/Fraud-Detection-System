@@ -4,7 +4,8 @@ from flask_cors import CORS
 from tensorflow.keras.models import load_model
 
 from database.mongo_config import (
-    transactions_collection
+    transactions_collection,
+    accounts_collection
 )
 
 import numpy as np
@@ -16,35 +17,41 @@ app = Flask(__name__)
 
 CORS(app)
 
-# ==============================
-# LOAD TRAINED MODEL
-# ==============================
+# LOAD MODEL
 
 model = load_model(
     "model/fraud_model.h5"
 )
 
-# ==============================
-# LOAD SCALER + ENCODER
-# ==============================
+# LOAD SCALER
 
 scaler = joblib.load(
     "model/scaler.pkl"
 )
 
+# LOAD ENCODER
+
 encoder = joblib.load(
     "model/label_encoder.pkl"
 )
 
-# ==============================
-# API ROUTE
-# ==============================
+# API
 
 @app.route("/predict", methods=["POST"])
 
 def predict():
 
     data = request.json
+
+    sender_account = data.get(
+        "sender_account"
+    )
+
+    receiver_account = data.get(
+        "receiver_account"
+    )
+
+    pin = data.get("pin")
 
     amount = float(
         data.get("amount", 0)
@@ -55,9 +62,78 @@ def predict():
         "PAYMENT"
     )
 
-    # ==============================
+    # FETCH ACCOUNTS
+
+    sender = accounts_collection.find_one({
+
+        "account_number":
+            sender_account
+    })
+
+    receiver = accounts_collection.find_one({
+
+        "account_number":
+            receiver_account
+    })
+
+    # VALIDATION
+
+    if not sender:
+
+        return jsonify({
+
+            "status": "failed",
+
+            "message":
+                "Sender account not found"
+        })
+
+    if not receiver:
+
+        return jsonify({
+
+            "status": "failed",
+
+            "message":
+                "Receiver account not found"
+        })
+
+    # PIN CHECK
+
+    if sender["pin"] != pin:
+
+        return jsonify({
+
+            "status": "failed",
+
+            "message":
+                "Invalid PIN"
+        })
+
+    # BALANCES
+
+    oldbalanceOrg = sender["balance"]
+
+    oldbalanceDest = receiver["balance"]
+
+   
+
+    if amount > oldbalanceOrg:
+
+        return jsonify({
+
+            "status": "failed",
+
+            "message":
+                "Insufficient Balance"
+        })
+
+
+    newbalanceOrig = oldbalanceOrg - amount
+
+    newbalanceDest = oldbalanceDest + amount
+
     # ENCODE PAYMENT TYPE
-    # ==============================
 
     try:
 
@@ -69,41 +145,38 @@ def predict():
 
         encoded_type = 0
 
-    # ==============================
-    # DUMMY VALUES
-    # (TEMPORARY)
-    # ==============================
+    # ANN INPUT
 
-    oldbalanceOrg = amount * 2
-    newbalanceOrig = oldbalanceOrg - amount
+    step = 1
 
-    oldbalanceDest = 0
-    newbalanceDest = amount
-
-    # ==============================
-    # PREPARE INPUT
-    # ==============================
+    isFlaggedFraud = 0
 
     input_data = np.array([[
+
+        step,
+
         encoded_type,
+
         amount,
+
         oldbalanceOrg,
+
         newbalanceOrig,
+
         oldbalanceDest,
-        newbalanceDest
+
+        newbalanceDest,
+
+        isFlaggedFraud
     ]])
 
-    # ==============================
-    # SCALE INPUT
-    # ==============================
+    
 
     input_scaled = scaler.transform(
         input_data
     )
 
-    # ==============================
-    # AI PREDICTION
-    # ==============================
+    # PREDICT
 
     prediction = model.predict(
         input_scaled
@@ -114,9 +187,7 @@ def predict():
         2
     )
 
-    # ==============================
-    # DECISION ENGINE
-    # ==============================
+    
 
     if fraud_probability < 0.4:
 
@@ -130,20 +201,61 @@ def predict():
 
         status = "fraud"
 
-    # ==============================
-    # STORE IN MONGODB
-    # ==============================
+   
+
+    if status == "safe":
+
+        accounts_collection.update_one(
+
+            {
+                "account_number":
+                    sender_account
+            },
+
+            {
+                "$set": {
+                    "balance":
+                        newbalanceOrig
+                }
+            }
+        )
+
+        accounts_collection.update_one(
+
+            {
+                "account_number":
+                    receiver_account
+            },
+
+            {
+                "$set": {
+                    "balance":
+                        newbalanceDest
+                }
+            }
+        )
+
+    # STORE TRANSACTION
 
     transaction_data = {
 
-        "amount": amount,
+        "sender_account":
+            sender_account,
 
-        "type": payment_type,
+        "receiver_account":
+            receiver_account,
+
+        "amount":
+            amount,
+
+        "type":
+            payment_type,
 
         "fraud_probability":
             fraud_probability,
 
-        "status": status,
+        "status":
+            status,
 
         "timestamp":
             datetime.now()
@@ -153,23 +265,17 @@ def predict():
         transaction_data
     )
 
-    # ==============================
-    # RETURN RESPONSE
-    # ==============================
-
     return jsonify({
 
         "fraud_probability":
             fraud_probability,
 
         "status":
-            status
+            status,
+
+        "sender_balance":
+            newbalanceOrig
     })
-
-
-# ==============================
-# RUN FLASK
-# ==============================
 
 if __name__ == "__main__":
 

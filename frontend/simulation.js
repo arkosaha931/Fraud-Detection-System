@@ -116,21 +116,47 @@ function showCard(event) {
 
 async function checkTransaction() {
 
+    const senderAccount =
+        document.getElementById(
+            "sender_account"
+        ).value;
+
+    const receiverAccount =
+        document.getElementById(
+            "receiver_account"
+        ).value;
+
+    const pin =
+        document.getElementById(
+            "pin"
+        ).value;
+
     const amount =
-        document.getElementById("amount").value;
+        document.getElementById(
+            "amount"
+        ).value;
 
     const type =
-        document.getElementById("type").value;
+        document.getElementById(
+            "type"
+        ).value;
 
     let resultBox =
-        document.getElementById("result");
+        document.getElementById(
+            "result"
+        );
 
-    
+    // VALIDATION
 
-    if (!amount || amount <= 0) {
+    if (
+        !senderAccount ||
+        !receiverAccount ||
+        !pin ||
+        !amount
+    ) {
 
         resultBox.innerHTML =
-            "❌ Please enter a valid amount";
+            "❌ Please fill all fields";
 
         resultBox.style.background =
             "#dc2626";
@@ -150,6 +176,7 @@ async function checkTransaction() {
         return;
     }
 
+    // LOADING
 
     resultBox.innerHTML =
         "⏳ Analyzing transaction...";
@@ -171,7 +198,6 @@ async function checkTransaction() {
 
     try {
 
-
         const response = await fetch(
             "http://127.0.0.1:5000/predict",
             {
@@ -184,6 +210,14 @@ async function checkTransaction() {
 
                 body: JSON.stringify({
 
+                    sender_account:
+                        senderAccount,
+
+                    receiver_account:
+                        receiverAccount,
+
+                    pin: pin,
+
                     amount: amount,
 
                     type: type,
@@ -195,16 +229,24 @@ async function checkTransaction() {
             }
         );
 
-       
-        if (!response.ok) {
-
-            throw new Error(
-                "Backend server error"
-            );
-        }
-
         const data =
             await response.json();
+
+        // FAILED
+
+        if (data.status === "failed") {
+
+            resultBox.innerHTML = `
+                ❌ ${data.message}
+            `;
+
+            resultBox.style.background =
+                "#dc2626";
+
+            return;
+        }
+
+        // SAFE
 
         if (data.status === "safe") {
 
@@ -217,12 +259,18 @@ async function checkTransaction() {
                 Fraud Probability:
                 ${data.fraud_probability}
 
+                <br><br>
+
+                Updated Sender Balance:
+                ₹${data.sender_balance}
+
             `;
 
             resultBox.style.background =
                 "#16a34a";
         }
 
+        // SUSPICIOUS
 
         else if (
             data.status === "suspicious"
@@ -250,7 +298,7 @@ async function checkTransaction() {
                 "#111";
         }
 
-
+        // FRAUD
 
         else {
 
@@ -275,7 +323,6 @@ async function checkTransaction() {
 
     }
 
-
     catch (error) {
 
         console.error(error);
@@ -284,10 +331,6 @@ async function checkTransaction() {
 
             ❌ Unable to connect
             to FraudLens AI Server
-
-            <br><br>
-
-            Please check Flask backend
 
         `;
 

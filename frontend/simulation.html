@@ -154,146 +154,132 @@
 
       <form>
 
+  <input type="hidden"
+    id="type"
+    value="Google Pay">
 
-        <input type="hidden"
-          id="type"
-          value="Google Pay">
+  <!-- SENDER ACCOUNT -->
 
-       
+  <label>Your Account Number</label>
 
-        <div id="upi-form">
+  <input
+    type="text"
+    id="sender_account"
+    placeholder="Enter Your Account Number">
 
-          <label>UPI ID</label>
+  <!-- RECEIVER ACCOUNT -->
 
-          <input type="text"
-            placeholder="example@upi">
+  <label>Receiver Account Number</label>
 
-          <label>Mobile Number</label>
+  <input
+    type="text"
+    id="receiver_account"
+    placeholder="Enter Receiver Account Number">
 
-          <input type="text"
-            placeholder="+91 9876543210">
+  <!-- TRANSACTION PIN -->
 
-          <label>UPI PIN</label>
+  <label> PIN</label>
 
-          <input type="password"
-            placeholder="Enter UPI PIN">
+  <input
+    type="password"
+    id="pin"
+    placeholder="Enter PIN">
 
-         
-        </div>
+  <!-- UPI FORM -->
 
-      
+  <div id="upi-form">
 
-        <div id="netbanking-form"
-          style="display:none;">
+    
 
-          <label>Bank Name</label>
+  </div>
 
-          <input type="text"
-            placeholder="Enter Bank Name">
+  <!-- NET BANKING -->
 
-          <label>Account Holder Name</label>
+  <div id="netbanking-form"
+    style="display:none;">
 
-          <input type="text"
-            placeholder="Enter Account Holder Name">
+    <label>Bank Name</label>
 
-          <label>Account Number</label>
+    <input type="text"
+      placeholder="Enter Bank Name">
 
-          <input type="text"
-            placeholder="Enter Account Number">
+    <label>IFSC Code</label>
 
-          <label>IFSC Code</label>
+    <input type="text"
+      placeholder="Enter IFSC Code">
 
-          <input type="text"
-            placeholder="Enter IFSC Code">
+  </div>
 
-          <label> Password</label>
+  <!-- CASH -->
 
-          <input type="password"
-            placeholder="Enter Password">
+  <div id="cash-form"
+    style="display:none;">
 
-        </div>
+    <label>ATM Card Number</label>
 
+    <input type="text"
+      placeholder="Enter ATM Card Number">
 
-        <div id="cash-form"
-          style="display:none;">
+  </div>
 
-          <label>ATM Card Number</label>
+  <!-- CARD -->
 
-          <input type="text"
-            placeholder="Enter ATM Card Number">
+  <div id="card-form"
+    style="display:none;">
 
-          <label>Account Holder Name</label>
+    
+    <label>Card Holder Name</label>
 
-          <input type="text"
-            placeholder="Enter Name">
+    <input type="text"
+      placeholder="Cameron Williamson">
 
-          <label>ATM PIN</label>
+    <div class="row">
 
-          <input type="password"
-            placeholder="Enter ATM PIN">
+      <div class="col">
 
-        </div>
+        <label>Expiry Date</label>
 
+        <input type="text"
+          placeholder="MM / YY">
 
-        <div id="card-form"
-          style="display:none;">
+      </div>
 
-          <label>Card Number</label>
+      <div class="col">
 
-          <input type="text"
-            placeholder="5878 •••• •••• 2207">
+        <label>CVV/CVC</label>
 
-          <label>Card Holder Name</label>
+        <input type="password"
+          placeholder="***">
 
-          <input type="text"
-            placeholder="Cameron Williamson">
+      </div>
 
-          <div class="row">
+    </div>
 
-            <div class="col">
+  </div>
 
-              <label>Expiry Date</label>
+  <!-- AMOUNT -->
 
-              <input type="text"
-                placeholder="MM / YY">
+  <label>Enter Amount</label>
 
-            </div>
+  <input type="number"
+    id="amount"
+    placeholder="Enter Amount">
 
-            <div class="col">
+  <!-- BUTTON -->
 
-              <label>CVV/CVC</label>
+  <button type="button"
+    class="pay"
+    onclick="checkTransaction()">
 
-              <input type="password"
-                placeholder="***">
+    Proceed Payment
 
-            </div>
+  </button>
 
-          </div>
+  <!-- RESULT -->
 
-        </div>
+  <div id="result"></div>
 
-      
-        <label>Enter Amount</label>
-
-        <input type="number"
-          id="amount"
-          placeholder="Enter Amount">
-
-       
-
-        <button type="button"
-          class="pay"
-          onclick="checkTransaction()">
-
-          Proceed Payment
-
-        </button>
-
-       
-
-        <div id="result"></div>
-
-      </form>
+</form>
 
     </div>
 

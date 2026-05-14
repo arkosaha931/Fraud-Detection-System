@@ -6,4 +6,6 @@ client = MongoClient(MONGO_URI)
 
 db = client["fraudlens"]
 
+accounts_collection = db["accounts"]
+
 transactions_collection = db["transactions"]
