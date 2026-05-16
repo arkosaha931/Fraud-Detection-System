@@ -8,6 +8,7 @@ from database.mongo_config import (
     accounts_collection
 )
 
+import pandas as pd
 import numpy as np
 import joblib
 
@@ -17,265 +18,478 @@ app = Flask(__name__)
 
 CORS(app)
 
+# ==============================
 # LOAD MODEL
+# ==============================
 
 model = load_model(
-    "model/fraud_model.h5"
+    "model/fraud_model.keras"
 )
 
+# ==============================
 # LOAD SCALER
+# ==============================
 
 scaler = joblib.load(
     "model/scaler.pkl"
 )
 
+# ==============================
 # LOAD ENCODER
+# ==============================
 
 encoder = joblib.load(
     "model/label_encoder.pkl"
 )
 
+# ==============================
+# LOAD FEATURE COLUMNS
+# ==============================
+
+feature_columns = joblib.load(
+    "model/feature_columns.pkl"
+)
+
+# ==============================
 # API
+# ==============================
 
 @app.route("/predict", methods=["POST"])
 
 def predict():
 
-    data = request.json
-
-    sender_account = data.get(
-        "sender_account"
-    )
-
-    receiver_account = data.get(
-        "receiver_account"
-    )
-
-    pin = data.get("pin")
-
-    amount = float(
-        data.get("amount", 0)
-    )
-
-    payment_type = data.get(
-        "type",
-        "PAYMENT"
-    )
-
-    # FETCH ACCOUNTS
-
-    sender = accounts_collection.find_one({
-
-        "account_number":
-            sender_account
-    })
-
-    receiver = accounts_collection.find_one({
-
-        "account_number":
-            receiver_account
-    })
-
-    # VALIDATION
-
-    if not sender:
-
-        return jsonify({
-
-            "status": "failed",
-
-            "message":
-                "Sender account not found"
-        })
-
-    if not receiver:
-
-        return jsonify({
-
-            "status": "failed",
-
-            "message":
-                "Receiver account not found"
-        })
-
-    # PIN CHECK
-
-    if sender["pin"] != pin:
-
-        return jsonify({
-
-            "status": "failed",
-
-            "message":
-                "Invalid PIN"
-        })
-
-    # BALANCES
-
-    oldbalanceOrg = sender["balance"]
-
-    oldbalanceDest = receiver["balance"]
-
-   
-
-    if amount > oldbalanceOrg:
-
-        return jsonify({
-
-            "status": "failed",
-
-            "message":
-                "Insufficient Balance"
-        })
-
-
-    newbalanceOrig = oldbalanceOrg - amount
-
-    newbalanceDest = oldbalanceDest + amount
-
-    # ENCODE PAYMENT TYPE
-
     try:
 
-        encoded_type = encoder.transform(
-            [payment_type]
-        )[0]
+        data = request.json
 
-    except:
+        sender_account = data.get(
+            "sender_account"
+        )
 
-        encoded_type = 0
+        receiver_account = data.get(
+            "receiver_account"
+        )
 
-    # ANN INPUT
+        pin = data.get("pin")
 
-    step = 1
+        amount = float(
+            data.get("amount", 0)
+        )
 
-    isFlaggedFraud = 0
+        payment_type = data.get(
+            "type",
+            "PAYMENT"
+        )
 
-    input_data = np.array([[
+        location = data.get(
+            "location",
+            "Unknown"
+        )
 
-        step,
+        device_info = data.get(
+            "device_info",
+            "Unknown Device"
+        )
 
-        encoded_type,
+        # ==============================
+        # FETCH ACCOUNTS
+        # ==============================
 
-        amount,
+        sender = accounts_collection.find_one({
 
-        oldbalanceOrg,
+            "account_number":
+                sender_account
+        })
 
-        newbalanceOrig,
+        receiver = accounts_collection.find_one({
 
-        oldbalanceDest,
+            "account_number":
+                receiver_account
+        })
 
-        newbalanceDest,
+        if not sender:
 
-        isFlaggedFraud
-    ]])
+            return jsonify({
 
-    
+                "status": "failed",
 
-    input_scaled = scaler.transform(
-        input_data
-    )
+                "message":
+                    "Sender account not found"
+            })
 
-    # PREDICT
+        if not receiver:
 
-    prediction = model.predict(
-        input_scaled
-    )[0][0]
+            return jsonify({
 
-    fraud_probability = round(
-        float(prediction),
-        2
-    )
+                "status": "failed",
 
-    
+                "message":
+                    "Receiver account not found"
+            })
 
-    if fraud_probability < 0.4:
+        if sender["pin"] != pin:
 
-        status = "safe"
+            return jsonify({
 
-    elif fraud_probability < 0.8:
+                "status": "failed",
 
-        status = "suspicious"
+                "message":
+                    "Invalid PIN"
+            })
 
-    else:
+        # ==============================
+        # BALANCES
+        # ==============================
 
-        status = "fraud"
+        oldbalanceOrg = sender["balance"]
 
-   
+        oldbalanceDest = receiver["balance"]
 
-    if status == "safe":
+        if amount > oldbalanceOrg:
 
-        accounts_collection.update_one(
+            return jsonify({
 
-            {
-                "account_number":
+                "status": "failed",
+
+                "message":
+                    "Insufficient Balance"
+            })
+
+        newbalanceOrig = (
+            oldbalanceOrg - amount
+        )
+
+        newbalanceDest = (
+            oldbalanceDest + amount
+        )
+
+        # ==============================
+        # ENCODE TYPE
+        # ==============================
+
+        try:
+
+            encoded_type = encoder.transform(
+                [payment_type]
+            )[0]
+
+        except:
+
+            encoded_type = 0
+
+        # ==============================
+        # FEATURES
+        # ==============================
+
+        step = datetime.now().hour
+
+        transaction_hour = (
+            datetime.now().hour
+        )
+
+        recent_transactions = (
+
+            transactions_collection.count_documents({
+
+                "sender_account":
                     sender_account
-            },
+            })
 
-            {
-                "$set": {
-                    "balance":
-                        newbalanceOrig
-                }
-            }
         )
 
-        accounts_collection.update_one(
-
-            {
-                "account_number":
-                    receiver_account
-            },
-
-            {
-                "$set": {
-                    "balance":
-                        newbalanceDest
-                }
-            }
+        transaction_frequency = (
+            recent_transactions + 1
         )
 
-    # STORE TRANSACTION
+        amount_ratio = (
 
-    transaction_data = {
+            amount
 
-        "sender_account":
-            sender_account,
+            /
 
-        "receiver_account":
-            receiver_account,
+            (oldbalanceOrg + 1)
 
-        "amount":
-            amount,
+        )
 
-        "type":
-            payment_type,
+        # ==============================
+        # DEVICE RISK
+        # ==============================
 
-        "fraud_probability":
+        device_risk = 0
+
+        risky_devices = [
+
+            "linux",
+            "unknown",
+            "rooted"
+        ]
+
+        for risky in risky_devices:
+
+            if risky in device_info.lower():
+
+                device_risk = 1
+
+        # ==============================
+        # LOCATION RISK
+        # ==============================
+
+        location_risk = 0
+
+        risky_locations = [
+
+            "foreign",
+            "unknown"
+        ]
+
+        for risky in risky_locations:
+
+            if risky in location.lower():
+
+                location_risk = 1
+
+        isFlaggedFraud = 0
+
+        # ==============================
+        # DATAFRAME INPUT
+        # ==============================
+
+        input_data = pd.DataFrame([{
+
+            "step":
+                step,
+
+            "type":
+                encoded_type,
+
+            "amount":
+                amount,
+
+            "oldbalanceOrg":
+                oldbalanceOrg,
+
+            "newbalanceOrig":
+                newbalanceOrig,
+
+            "oldbalanceDest":
+                oldbalanceDest,
+
+            "newbalanceDest":
+                newbalanceDest,
+
+            "isFlaggedFraud":
+                isFlaggedFraud,
+
+            "transaction_hour":
+                transaction_hour,
+
+            "transaction_frequency":
+                transaction_frequency,
+
+            "device_risk":
+                device_risk,
+
+            "location_risk":
+                location_risk,
+
+            "amount_ratio":
+                amount_ratio
+        }])
+
+        # COLUMN ORDER FIX
+
+        input_data = input_data[
+            feature_columns
+        ]
+
+        # ==============================
+        # SCALE
+        # ==============================
+
+        input_scaled = scaler.transform(
+            input_data
+        )
+
+        # ==============================
+        # PREDICT
+        # ==============================
+
+        prediction = model.predict(
+            input_scaled,
+            verbose=0
+        )[0][0]
+
+        fraud_probability = float(
+            prediction
+        )
+
+        # ==============================
+        # RULE BOOSTING
+        # ==============================
+
+        if amount > 10000:
+
+            fraud_probability += 0.15
+
+        if transaction_frequency > 5:
+
+            fraud_probability += 0.10
+
+        if device_risk == 1:
+
+            fraud_probability += 0.10
+
+        if location_risk == 1:
+
+            fraud_probability += 0.10
+
+        fraud_probability = min(
             fraud_probability,
+            1.0
+        )
 
-        "status":
-            status,
-
-        "timestamp":
-            datetime.now()
-    }
-
-    transactions_collection.insert_one(
-        transaction_data
-    )
-
-    return jsonify({
-
-        "fraud_probability":
+        fraud_probability = round(
             fraud_probability,
+            2
+        )
 
-        "status":
-            status,
+        # ==============================
+        # DECISION
+        # ==============================
 
-        "sender_balance":
-            newbalanceOrig
-    })
+        if fraud_probability < 0.30:
+
+            status = "safe"
+
+        elif fraud_probability < 0.70:
+
+            status = "suspicious"
+
+        else:
+
+            status = "fraud"
+
+        # ==============================
+        # UPDATE BALANCES
+        # ==============================
+
+        if status == "safe":
+
+            accounts_collection.update_one(
+
+                {
+                    "account_number":
+                        sender_account
+                },
+
+                {
+                    "$set": {
+                        "balance":
+                            newbalanceOrig
+                    }
+                }
+            )
+
+            accounts_collection.update_one(
+
+                {
+                    "account_number":
+                        receiver_account
+                },
+
+                {
+                    "$set": {
+                        "balance":
+                            newbalanceDest
+                    }
+                }
+            )
+
+        # ==============================
+        # SAVE TRANSACTION
+        # ==============================
+
+        transaction_data = {
+
+            "sender_account":
+                sender_account,
+
+            "receiver_account":
+                receiver_account,
+
+            "amount":
+                amount,
+
+            "type":
+                payment_type,
+
+            "location":
+                location,
+
+            "device_info":
+                device_info,
+
+            "transaction_hour":
+                transaction_hour,
+
+            "transaction_frequency":
+                transaction_frequency,
+
+            "device_risk":
+                device_risk,
+
+            "location_risk":
+                location_risk,
+
+            "amount_ratio":
+                amount_ratio,
+
+            "fraud_probability":
+                fraud_probability,
+
+            "status":
+                status,
+
+            "timestamp":
+                datetime.now()
+        }
+
+        transactions_collection.insert_one(
+            transaction_data
+        )
+
+        # ==============================
+        # RESPONSE
+        # ==============================
+
+        return jsonify({
+
+            "fraud_probability":
+                fraud_probability,
+
+            "status":
+                status,
+
+            "sender_balance":
+                newbalanceOrig,
+
+            "transaction_frequency":
+                transaction_frequency
+        })
+
+    except Exception as e:
+
+        return jsonify({
+
+            "status": "error",
+
+            "message": str(e)
+        })
+
+
+# ==============================
+# RUN
+# ==============================
 
 if __name__ == "__main__":
 

@@ -210,22 +210,32 @@ async function checkTransaction() {
 
                 body: JSON.stringify({
 
-                    sender_account:
-                        senderAccount,
+    sender_account:
+        senderAccount,
 
-                    receiver_account:
-                        receiverAccount,
+    receiver_account:
+        receiverAccount,
 
-                    pin: pin,
+    pin: pin,
 
-                    amount: amount,
+    amount: amount,
 
-                    type: type,
+    type: type,
 
-                    timestamp:
-                        new Date().toISOString()
+    // LOCATION FEATURE
 
-                })
+    location:
+        "Kolkata",
+
+    // DEVICE FEATURE
+
+    device_info:
+        navigator.userAgent,
+
+    timestamp:
+        new Date().toISOString()
+
+})
             }
         );
 

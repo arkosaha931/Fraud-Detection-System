@@ -1,6 +1,10 @@
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import StandardScaler
+
+from sklearn.preprocessing import (
+    LabelEncoder,
+    StandardScaler
+)
+
 import joblib
 
 # ==============================
@@ -13,11 +17,52 @@ def load_data(path):
 
     return df
 
+
+# ==============================
+# FEATURE ENGINEERING
+# ==============================
+
+def add_behavioral_features(df):
+
+    # REALISTIC FEATURES
+
+    df["transaction_hour"] = (
+        df["step"] % 24
+    )
+
+    # DEFAULT VALUES
+    # (Can be improved later)
+
+    df["transaction_frequency"] = 1
+
+    df["device_risk"] = 0
+
+    df["location_risk"] = 0
+
+    # AMOUNT RATIO
+
+    df["amount_ratio"] = (
+
+        df["amount"]
+
+        /
+
+        (df["oldbalanceOrg"] + 1)
+
+    )
+
+    return df
+
+
 # ==============================
 # PREPROCESS DATA
 # ==============================
 
 def preprocess_data(df):
+
+    # ADD FEATURES
+
+    df = add_behavioral_features(df)
 
     # REMOVE UNUSED COLUMNS
 
@@ -43,11 +88,25 @@ def preprocess_data(df):
 
     # FEATURES
 
-    X = df.drop("isFraud", axis=1)
+    X = df.drop(
+        "isFraud",
+        axis=1
+    )
 
     # TARGET
 
     y = df["isFraud"]
+
+    # SAVE FEATURE COLUMNS
+
+    joblib.dump(
+        X.columns.tolist(),
+        "model/feature_columns.pkl"
+    )
+
+    print("\nFEATURE COLUMNS:\n")
+
+    print(X.columns.tolist())
 
     # SCALE FEATURES
 
