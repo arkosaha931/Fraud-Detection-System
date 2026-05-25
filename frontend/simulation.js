@@ -1,353 +1,219 @@
-
-
 let currentPaymentType = "Google Pay";
 
 function setPaymentType(type) {
-
     currentPaymentType = type;
-
     document.getElementById("type").value = type;
 }
 
-
-
 function removeActive() {
-
-    let buttons =
-        document.querySelectorAll(".method-btn");
-
-    buttons.forEach(btn => {
+    document.querySelectorAll(".method-btn").forEach(btn => {
         btn.classList.remove("active");
     });
 }
 
-
 function showUPI(event) {
-
-    document.getElementById("upi-form").style.display =
-        "block";
-
-    document.getElementById("netbanking-form").style.display =
-        "none";
-
-    document.getElementById("cash-form").style.display =
-        "none";
-
-    document.getElementById("card-form").style.display =
-        "none";
-
+    document.getElementById("upi-form").style.display        = "block";
+    document.getElementById("netbanking-form").style.display = "none";
+    document.getElementById("cash-form").style.display       = "none";
+    document.getElementById("card-form").style.display       = "none";
     removeActive();
-
     event.currentTarget.classList.add("active");
-
     setPaymentType("Google Pay");
 }
 
-
-
 function showNetBanking(event) {
-
-    document.getElementById("upi-form").style.display =
-        "none";
-
-    document.getElementById("netbanking-form").style.display =
-        "block";
-
-    document.getElementById("cash-form").style.display =
-        "none";
-
-    document.getElementById("card-form").style.display =
-        "none";
-
+    document.getElementById("upi-form").style.display        = "none";
+    document.getElementById("netbanking-form").style.display = "block";
+    document.getElementById("cash-form").style.display       = "none";
+    document.getElementById("card-form").style.display       = "none";
     removeActive();
-
     event.currentTarget.classList.add("active");
-
     setPaymentType("Net Banking");
 }
 
-
-
 function showCash(event) {
-
-    document.getElementById("upi-form").style.display =
-        "none";
-
-    document.getElementById("netbanking-form").style.display =
-        "none";
-
-    document.getElementById("cash-form").style.display =
-        "block";
-
-    document.getElementById("card-form").style.display =
-        "none";
-
+    document.getElementById("upi-form").style.display        = "none";
+    document.getElementById("netbanking-form").style.display = "none";
+    document.getElementById("cash-form").style.display       = "block";
+    document.getElementById("card-form").style.display       = "none";
     removeActive();
-
     event.currentTarget.classList.add("active");
-
     setPaymentType("Cash Withdraw");
 }
 
-
-
 function showCard(event) {
-
-    document.getElementById("upi-form").style.display =
-        "none";
-
-    document.getElementById("netbanking-form").style.display =
-        "none";
-
-    document.getElementById("cash-form").style.display =
-        "none";
-
-    document.getElementById("card-form").style.display =
-        "block";
-
+    document.getElementById("upi-form").style.display        = "none";
+    document.getElementById("netbanking-form").style.display = "none";
+    document.getElementById("cash-form").style.display       = "none";
+    document.getElementById("card-form").style.display       = "block";
     removeActive();
-
     event.currentTarget.classList.add("active");
-
     setPaymentType("Card");
 }
 
+// ==========================================
+// STYLE HELPER
+// ==========================================
 
+function styleResult(box, bg, color = "white") {
+    box.style.background    = bg;
+    box.style.color         = color;
+    box.style.padding       = "18px";
+    box.style.borderRadius  = "14px";
+    box.style.marginTop     = "20px";
+    box.style.lineHeight    = "1.7";
+    box.style.fontSize      = "15px";
+}
+
+// ==========================================
+// MAIN TRANSACTION HANDLER
+// ==========================================
 
 async function checkTransaction() {
 
-    const senderAccount =
-        document.getElementById(
-            "sender_account"
-        ).value;
+    const senderAccount   = document.getElementById("sender_account").value.trim();
+    const receiverAccount = document.getElementById("receiver_account").value.trim();
+    const pin             = document.getElementById("pin").value.trim();
+    const amount          = document.getElementById("amount").value.trim();
+    const type            = document.getElementById("type").value;
 
-    const receiverAccount =
-        document.getElementById(
-            "receiver_account"
-        ).value;
+    const resultBox = document.getElementById("result");
 
-    const pin =
-        document.getElementById(
-            "pin"
-        ).value;
+    // ---- VALIDATION ----
 
-    const amount =
-        document.getElementById(
-            "amount"
-        ).value;
-
-    const type =
-        document.getElementById(
-            "type"
-        ).value;
-
-    let resultBox =
-        document.getElementById(
-            "result"
-        );
-
-    // VALIDATION
-
-    if (
-        !senderAccount ||
-        !receiverAccount ||
-        !pin ||
-        !amount
-    ) {
-
-        resultBox.innerHTML =
-            "❌ Please fill all fields";
-
-        resultBox.style.background =
-            "#dc2626";
-
-        resultBox.style.color =
-            "white";
-
-        resultBox.style.padding =
-            "18px";
-
-        resultBox.style.borderRadius =
-            "14px";
-
-        resultBox.style.marginTop =
-            "20px";
-
+    if (!senderAccount || !receiverAccount || !pin || !amount) {
+        styleResult(resultBox, "#dc2626");
+        resultBox.innerHTML = "❌ Please fill all fields";
         return;
     }
 
-    // LOADING
+    // ---- LOADING ----
 
-    resultBox.innerHTML =
-        "⏳ Analyzing transaction...";
-
-    resultBox.style.background =
-        "#2563eb";
-
-    resultBox.style.color =
-        "white";
-
-    resultBox.style.padding =
-        "18px";
-
-    resultBox.style.borderRadius =
-        "14px";
-
-    resultBox.style.marginTop =
-        "20px";
+    styleResult(resultBox, "#2563eb");
+    resultBox.innerHTML = "⏳ Analyzing transaction with FraudLens AI...";
 
     try {
 
-        const response = await fetch(
-            "http://127.0.0.1:5000/predict",
-            {
-                method: "POST",
+        const response = await fetch("http://127.0.0.1:5000/predict", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                sender_account:   senderAccount,
+                receiver_account: receiverAccount,
+                pin:              pin,
+                amount:           amount,
+                type:             type,
+                location:         "Kolkata",
+                device_info:      navigator.userAgent,
+                timestamp:        new Date().toISOString()
+            })
+        });
 
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
+        const data = await response.json();
 
-                body: JSON.stringify({
-
-    sender_account:
-        senderAccount,
-
-    receiver_account:
-        receiverAccount,
-
-    pin: pin,
-
-    amount: amount,
-
-    type: type,
-
-    // LOCATION FEATURE
-
-    location:
-        "Kolkata",
-
-    // DEVICE FEATURE
-
-    device_info:
-        navigator.userAgent,
-
-    timestamp:
-        new Date().toISOString()
-
-})
-            }
-        );
-
-        const data =
-            await response.json();
-
-        // FAILED
+        // ---- FAILED (validation errors) ----
 
         if (data.status === "failed") {
+            styleResult(resultBox, "#dc2626");
+            resultBox.innerHTML = `❌ ${data.message}`;
+            return;
+        }
+
+        // ---- ERROR ----
+
+        if (data.status === "error") {
+            styleResult(resultBox, "#7f1d1d");
+            resultBox.innerHTML = `⚠️ Server error: ${data.message}`;
+            return;
+        }
+
+        // ---- SAFE ----
+
+        if (data.status === "safe") {
+
+            styleResult(resultBox, "#15803d");
 
             resultBox.innerHTML = `
-                ❌ ${data.message}
+                ✅ <strong>Transaction Approved</strong>
+                <br><br>
+                💸 Amount Transferred : <strong>₹${parseFloat(amount).toLocaleString("en-IN")}</strong>
+                <br>
+                🏦 Updated Balance : <strong>₹${parseFloat(data.balance).toLocaleString("en-IN")}</strong>
+                <br><br>
+                🤖 Fraud Probability : ${(data.fraud_probability * 100).toFixed(2)}%
+                <br>
+                🧠 NN Score : ${(data.nn_score * 100).toFixed(2)}%
+                &nbsp;|&nbsp;
+                🌲 ISO Score : ${(data.iso_score * 100).toFixed(2)}%
+                &nbsp;|&nbsp;
+                📊 Feature Score : ${(data.feature_score * 100).toFixed(2)}%
             `;
-
-            resultBox.style.background =
-                "#dc2626";
 
             return;
         }
 
-        // SAFE
+        // ---- SUSPICIOUS ----
 
-        if (data.status === "safe") {
+        if (data.status === "suspicious") {
 
-            resultBox.innerHTML = `
-
-                ✅ Transaction Approved
-
-                <br><br>
-
-                Fraud Probability:
-                ${data.fraud_probability}
-
-                <br><br>
-
-                Updated Sender Balance:
-                ₹${data.sender_balance}
-
-            `;
-
-            resultBox.style.background =
-                "#16a34a";
-        }
-
-        // SUSPICIOUS
-
-        else if (
-            data.status === "suspicious"
-        ) {
+            styleResult(resultBox, "#a16207", "#111");
 
             resultBox.innerHTML = `
-
-                ⚠️ Suspicious Transaction
-
+                ⚠️ <strong>Suspicious Transaction Detected</strong>
                 <br><br>
-
-                OTP Verification Required
-
+                OTP verification has been triggered.
+                Transaction is held pending confirmation.
                 <br><br>
-
-                Fraud Probability:
-                ${data.fraud_probability}
-
+                💸 Amount : <strong>₹${parseFloat(amount).toLocaleString("en-IN")}</strong>
+                <br>
+                🤖 Fraud Probability : ${(data.fraud_probability * 100).toFixed(2)}%
+                <br>
+                🧠 NN Score : ${(data.nn_score * 100).toFixed(2)}%
+                &nbsp;|&nbsp;
+                🌲 ISO Score : ${(data.iso_score * 100).toFixed(2)}%
+                &nbsp;|&nbsp;
+                📊 Feature Score : ${(data.feature_score * 100).toFixed(2)}%
             `;
 
-            resultBox.style.background =
-                "#eab308";
-
-            resultBox.style.color =
-                "#111";
+            return;
         }
 
-        // FRAUD
+        // ---- FRAUD ----
 
-        else {
+        if (data.status === "fraud") {
+
+            styleResult(resultBox, "#991b1b");
 
             resultBox.innerHTML = `
-
-                🚨 Fraudulent Transaction
-
+                🚨 <strong>Fraudulent Transaction Blocked</strong>
                 <br><br>
-
-                Transaction Blocked
-
+                This transaction has been flagged as fraudulent
+                and has been blocked. No money was transferred.
                 <br><br>
-
-                Fraud Probability:
-                ${data.fraud_probability}
-
+                💸 Attempted Amount : <strong>₹${parseFloat(amount).toLocaleString("en-IN")}</strong>
+                <br>
+                🏦 Your Balance Unchanged : <strong>₹${parseFloat(data.balance).toLocaleString("en-IN")}</strong>
+                <br><br>
+                🤖 Fraud Probability : ${(data.fraud_probability * 100).toFixed(2)}%
+                <br>
+                🧠 NN Score : ${(data.nn_score * 100).toFixed(2)}%
+                &nbsp;|&nbsp;
+                🌲 ISO Score : ${(data.iso_score * 100).toFixed(2)}%
+                &nbsp;|&nbsp;
+                📊 Feature Score : ${(data.feature_score * 100).toFixed(2)}%
             `;
 
-            resultBox.style.background =
-                "#dc2626";
+            return;
         }
 
-    }
-
-    catch (error) {
+    } catch (error) {
 
         console.error(error);
 
+        styleResult(resultBox, "#7f1d1d");
         resultBox.innerHTML = `
-
-            ❌ Unable to connect
-            to FraudLens AI Server
-
+            ❌ Unable to connect to FraudLens AI Server.
+            <br>Make sure the Flask server is running on port 5000.
         `;
-
-        resultBox.style.background =
-            "#991b1b";
-
-        resultBox.style.color =
-            "white";
     }
 }

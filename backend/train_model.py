@@ -1,11 +1,9 @@
 import os
 import numpy as np
 import joblib
-
 import tensorflow as tf
 
 from tensorflow.keras.models import Sequential
-
 from tensorflow.keras.layers import (
     Dense,
     Dropout,
@@ -18,144 +16,136 @@ from tensorflow.keras.callbacks import (
     ReduceLROnPlateau
 )
 
+from tensorflow.keras.losses import BinaryFocalCrossentropy
+
 from sklearn.ensemble import IsolationForest
-
 from sklearn.model_selection import train_test_split
-
-from sklearn.utils.class_weight import compute_class_weight
-
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     roc_auc_score,
     precision_recall_curve,
-    average_precision_score
+    average_precision_score,
+    f1_score
 )
 
-# YOUR FOLDER STRUCTURE:
-# preprocess.py is inside utils/
+from imblearn.over_sampling import SMOTE
+
 from utils.preprocess import (
     load_data,
     preprocess_data
 )
 
-# ==============================
-# ENSURE MODEL DIR EXISTS
-# ==============================
+
 
 os.makedirs("model", exist_ok=True)
 
-# ==============================
-# LOAD DATASET
-# ==============================
+
 
 df = load_data("dataset/fraud_dataset.csv")
 
-# ==============================
-# PREPROCESS
-# ==============================
 
-# preprocess_data now returns 3 values
 X, y, feature_cols = preprocess_data(df)
 
-# ==============================
-# CLASS DISTRIBUTION
-# ==============================
-
 print("\nClass Distribution:")
-print(f"  Legit (0): {(y == 0).sum()}")
-print(f"  Fraud (1): {(y == 1).sum()}")
-print(f"  Fraud %  : {(y == 1).mean() * 100:.4f}%")
+print(f"Legit : {(y == 0).sum()}")
+print(f"Fraud : {(y == 1).sum()}")
 
-# ==============================
-# TRAIN TEST SPLIT
-# ==============================
+
 
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
     test_size=0.2,
+    stratify=y,
+    random_state=42
+)
+
+
+
+print("\nApplying SMOTE Oversampling...")
+
+smote = SMOTE(
+    sampling_strategy=0.3,   # fraud : legit = 30:100
     random_state=42,
-    stratify=y
+    k_neighbors=5
 )
 
-print(f"\nTrain size : {X_train.shape[0]}")
-print(f"Test size  : {X_test.shape[0]}")
-
-# ==============================
-# CLASS WEIGHTS
-# (handles severe imbalance in fraud data)
-# ==============================
-
-class_weight_values = compute_class_weight(
-    class_weight="balanced",
-    classes=np.unique(y_train),
-    y=y_train
+X_train_resampled, y_train_resampled = smote.fit_resample(
+    X_train,
+    y_train
 )
 
-class_weights = {
-    0: class_weight_values[0],
-    1: class_weight_values[1]
-}
+print("\nAfter SMOTE:")
+print(f"Legit : {(y_train_resampled == 0).sum()}")
+print(f"Fraud : {(y_train_resampled == 1).sum()}")
 
-print(f"\nClass Weights: {class_weights}")
 
-# ==============================
-# ISOLATION FOREST
-# (Anomaly Detection Layer)
-# Trained only on legit transactions
-# Flags unusual patterns the NN might miss
-# ==============================
 
-print("\n⏳ Training Isolation Forest (Anomaly Detector)...")
+print("\nTraining Isolation Forest...")
 
-# Train only on LEGITIMATE transactions
 X_train_legit = X_train[y_train == 0]
 
 isolation_forest = IsolationForest(
-    n_estimators=200,
-    contamination=0.02,   # ~2% expected anomalies
-    max_samples="auto",
+    n_estimators=300,
+    contamination=0.001,   # tighter — expect <0.1% anomalies in legit
     random_state=42,
     n_jobs=-1
 )
 
 isolation_forest.fit(X_train_legit)
 
-# Save Isolation Forest
 joblib.dump(
     isolation_forest,
     "model/isolation_forest.pkl"
 )
 
-print("✅ Isolation Forest trained and saved.")
+print("✅ Isolation Forest Saved")
 
-# Get anomaly scores for test set
-# score_samples returns negative values
-# more negative = more anomalous
-iso_scores_test = isolation_forest.score_samples(X_test)
 
-# Normalize to [0, 1] range
-# Higher = more anomalous (fraud-like)
-iso_min = iso_scores_test.min()
-iso_max = iso_scores_test.max()
+iso_scores_train = isolation_forest.score_samples(X_train)
 
-iso_scores_normalized = 1 - (
-    (iso_scores_test - iso_min) /
-    (iso_max - iso_min + 1e-9)
-)
+iso_min = float(iso_scores_train.min())
+iso_max = float(iso_scores_train.max())
 
-# Save normalization params for inference
+print(f"\nISO norm range — min: {iso_min:.4f}  max: {iso_max:.4f}")
+
 joblib.dump(
-    {"min": iso_min, "max": iso_max},
+    {
+        "min": iso_min,
+        "max": iso_max
+    },
     "model/iso_norm_params.pkl"
 )
 
-# ==============================
-# BUILD NEURAL NETWORK
-# ==============================
+print("✅ ISO norm params saved")
 
-print("\n⏳ Building Neural Network...")
+
+iso_scores_test_raw = isolation_forest.score_samples(X_test)
+
+iso_scores_test_normalized = np.clip(
+    1.0 - (
+        (iso_scores_test_raw - iso_min) /
+        (iso_max - iso_min + 1e-9)
+    ),
+    0.0,
+    1.0
+)
+
+
+fraud_count = int((y_train == 1).sum())
+legit_count = int((y_train == 0).sum())
+total       = fraud_count + legit_count
+
+weight_for_0 = (1 / legit_count) * (total / 2.0)
+weight_for_1 = (1 / fraud_count) * (total / 2.0)
+
+class_weight = {0: weight_for_0, 1: weight_for_1}
+
+print(f"\nClass weights — legit: {weight_for_0:.4f}  fraud: {weight_for_1:.4f}")
+
+
+print("\nBuilding Neural Network...")
 
 n_features = X_train.shape[1]
 
@@ -163,38 +153,42 @@ model = Sequential([
 
     Input(shape=(n_features,)),
 
-    # Layer 1
+    Dense(256, activation="relu"),
+    BatchNormalization(),
+    Dropout(0.4),
+
     Dense(128, activation="relu"),
     BatchNormalization(),
-    Dropout(0.3),
+    Dropout(0.35),
 
-    # Layer 2
     Dense(64, activation="relu"),
     BatchNormalization(),
     Dropout(0.3),
 
-    # Layer 3
     Dense(32, activation="relu"),
     BatchNormalization(),
     Dropout(0.2),
 
-    # Layer 4
     Dense(16, activation="relu"),
-    Dropout(0.2),
+    Dropout(0.15),
 
-    # Output
     Dense(1, activation="sigmoid")
 ])
 
 model.summary()
 
-# ==============================
-# COMPILE
-# ==============================
+
 
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-    loss="binary_crossentropy",
+    optimizer=tf.keras.optimizers.Adam(
+        learning_rate=0.0005
+    ),
+
+    loss=BinaryFocalCrossentropy(
+        gamma=3.0,
+        apply_class_balancing=True
+    ),
+
     metrics=[
         "accuracy",
         tf.keras.metrics.AUC(name="auc"),
@@ -203,46 +197,47 @@ model.compile(
     ]
 )
 
-# ==============================
-# CALLBACKS
-# ==============================
 
 early_stop = EarlyStopping(
     monitor="val_auc",
-    patience=5,
+    patience=8,
     restore_best_weights=True,
-    mode="max"       # maximize AUC, not minimize loss
+    mode="max"
 )
 
 reduce_lr = ReduceLROnPlateau(
     monitor="val_auc",
-    factor=0.5,
-    patience=3,
-    min_lr=1e-6,
+    factor=0.4,
+    patience=4,
+    min_lr=1e-7,
     mode="max",
     verbose=1
 )
 
-# ==============================
-# TRAIN
-# ==============================
 
-print("\n⏳ Training Neural Network...")
+
+print("\nTraining Neural Network...")
 
 history = model.fit(
-    X_train,
-    y_train,
-    epochs=50,
-    batch_size=256,
-    validation_split=0.2,
-    callbacks=[early_stop, reduce_lr],
-    class_weight=class_weights,
+    X_train_resampled,
+    y_train_resampled,
+
+    validation_data=(X_test, y_test),
+
+    epochs=80,
+    batch_size=512,
+
+    class_weight=class_weight,
+
+    callbacks=[
+        early_stop,
+        reduce_lr
+    ],
+
     verbose=1
 )
 
-# ==============================
-# EVALUATE — NEURAL NETWORK
-# ==============================
+
 
 print("\n" + "="*50)
 print("NEURAL NETWORK EVALUATION")
@@ -254,98 +249,134 @@ loss, accuracy, auc, precision, recall = model.evaluate(
     verbose=0
 )
 
-print(f"  Loss      : {loss:.4f}")
-print(f"  Accuracy  : {accuracy:.4f}")
-print(f"  AUC-ROC   : {auc:.4f}")
-print(f"  Precision : {precision:.4f}")
-print(f"  Recall    : {recall:.4f}")
+print(f"Loss      : {loss:.4f}")
+print(f"Accuracy  : {accuracy:.4f}")
+print(f"AUC       : {auc:.4f}")
+print(f"Precision : {precision:.4f}")
+print(f"Recall    : {recall:.4f}")
 
-# ==============================
-# PREDICTIONS (Neural Network)
-# ==============================
 
-nn_probs = model.predict(X_test, verbose=0).flatten()
 
-# ==============================
-# COMBINED SCORE
-# Neural Net (70%) + Isolation Forest (30%)
-# This is the true ML-based final score
-# No manual rule boosting
-# ==============================
+NN_WEIGHT      = 0.65
+ISO_WEIGHT     = 0.15
+FEATURE_WEIGHT = 0.20
 
-NN_WEIGHT  = 0.70
-ISO_WEIGHT = 0.30
+nn_probs = model.predict(
+    X_test,
+    verbose=0
+).flatten()
 
-combined_probs = (
-    (NN_WEIGHT  * nn_probs) +
-    (ISO_WEIGHT * iso_scores_normalized)
+
+import pandas as pd
+
+feature_cols_loaded = joblib.load("model/feature_columns.pkl")
+scaler_loaded       = joblib.load("model/scaler.pkl")
+
+X_test_orig = scaler_loaded.inverse_transform(X_test)
+df_test     = pd.DataFrame(X_test_orig, columns=feature_cols_loaded)
+
+def compute_feature_score_batch(df_batch):
+    """
+    Vectorised version of app.py compute_feature_score.
+    transaction_frequency / high_frequency removed.
+    Returns a numpy array of scores in [0, 1].
+    """
+    score = np.zeros(len(df_batch))
+
+    # Full account drain — strongest signal
+    score += 0.35 * (df_batch["account_drained"]      == 1).values
+
+    # Amount vs balance ratio
+    score += 0.20 * (df_batch["extreme_amount_ratio"]  == 1).values
+    score += 0.12 * (
+        (df_batch["high_amount_ratio"]    == 1) &
+        (df_batch["extreme_amount_ratio"] == 0)
+    ).values
+
+    # Balance integrity
+    score += 0.15 * (df_batch["orig_balance_mismatch"] == 1).values
+    score += 0.12 * (df_batch["dest_balance_mismatch"] == 1).values
+
+    # Receiver balance unchanged after transfer
+    score += 0.12 * (df_batch["dest_no_increase"]      == 1).values
+
+    # Behavioral / contextual
+    score += 0.12 * (df_batch["device_risk"]           == 1).values
+    score += 0.10 * (df_batch["location_risk"]         == 1).values
+
+    return np.clip(score, 0.0, 1.0)
+
+feature_scores_test = compute_feature_score_batch(df_test)
+
+
+
+combined_probs = np.clip(
+    (NN_WEIGHT      * nn_probs)                    +
+    (ISO_WEIGHT     * iso_scores_test_normalized)  +
+    (FEATURE_WEIGHT * feature_scores_test),
+    0.0,
+    1.0
 )
 
-combined_probs = np.clip(combined_probs, 0.0, 1.0)
 
-# Find best threshold using Precision-Recall curve
-# Default 0.5 is wrong for imbalanced data
+
 precisions, recalls, thresholds = precision_recall_curve(
     y_test,
     combined_probs
 )
 
-# F1 score at each threshold
-f1_scores = (
+f1_scores_arr = (
     2 * precisions * recalls /
     (precisions + recalls + 1e-9)
 )
 
-best_threshold_idx = np.argmax(f1_scores)
-best_threshold = thresholds[best_threshold_idx]
+best_idx = np.argmax(f1_scores_arr)
 
-print(f"\n  Best Threshold (F1-optimal): {best_threshold:.4f}")
+best_threshold = float(thresholds[best_idx])
 
-# Save best threshold for inference
+print(f"\n✅ Best Threshold : {best_threshold:.4f}")
+
 joblib.dump(
-    float(best_threshold),
+    best_threshold,
     "model/best_threshold.pkl"
 )
 
-# Final predictions using best threshold
-y_pred_combined = (combined_probs >= best_threshold).astype(int)
 
-# ==============================
-# FULL EVALUATION — COMBINED
-# ==============================
+
+y_pred = (
+    combined_probs >= best_threshold
+).astype(int)
 
 print("\n" + "="*50)
-print("COMBINED MODEL EVALUATION (NN + IsolationForest)")
+print("FINAL MODEL EVALUATION")
 print("="*50)
 
-print(f"\n  AUC-ROC (combined): {roc_auc_score(y_test, combined_probs):.4f}")
-print(f"  Avg Precision     : {average_precision_score(y_test, combined_probs):.4f}")
+print(f"AUC ROC : {roc_auc_score(y_test, combined_probs):.4f}")
+
+print(
+    f"Average Precision : "
+    f"{average_precision_score(y_test, combined_probs):.4f}"
+)
 
 print("\nClassification Report:\n")
+
 print(
     classification_report(
         y_test,
-        y_pred_combined,
+        y_pred,
         target_names=["Legit", "Fraud"]
     )
 )
 
-print("Confusion Matrix:")
-cm = confusion_matrix(y_test, y_pred_combined)
-print(f"  TN={cm[0][0]}  FP={cm[0][1]}")
-print(f"  FN={cm[1][0]}  TP={cm[1][1]}")
+cm = confusion_matrix(y_test, y_pred)
 
-# ==============================
-# SAVE NEURAL NETWORK
-# ==============================
+print("\nConfusion Matrix:")
+print(f"TN : {cm[0][0]}")
+print(f"FP : {cm[0][1]}")
+print(f"FN : {cm[1][0]}")
+print(f"TP : {cm[1][1]}")
+
 
 model.save("model/fraud_model.keras")
 
-print("\n✅ Neural Network saved  → model/fraud_model.keras")
-print("✅ Isolation Forest saved → model/isolation_forest.pkl")
-print("✅ Scaler saved           → model/scaler.pkl")
-print("✅ Encoder saved          → model/label_encoder.pkl")
-print("✅ Feature columns saved  → model/feature_columns.pkl")
-print("✅ Best threshold saved   → model/best_threshold.pkl")
-print("✅ ISO norm params saved  → model/iso_norm_params.pkl")
-print("\n🎉 FraudLens ML Training Complete!")
+print("\n✅ All models saved successfully.")
