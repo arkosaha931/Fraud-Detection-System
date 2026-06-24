@@ -111,13 +111,12 @@ def add_behavioral_features(df):
 
 def preprocess_data(df):
 
-    # FEATURE ENGINEERING
     df = add_behavioral_features(df)
 
     # DROP NAME COLUMNS
     df = df.drop(["nameOrig", "nameDest"], axis=1)
 
-    # ENCODE TRANSACTION TYPE
+   
     encoder = LabelEncoder()
     df["type"] = encoder.fit_transform(df["type"])
 
@@ -126,11 +125,11 @@ def preprocess_data(df):
     print(f"\n✅ Encoder saved.")
     print(f"   Known types: {list(encoder.classes_)}")
 
-    # SEPARATE FEATURES AND TARGET
+    
     X = df.drop(["isFraud"], axis=1)
     y = df["isFraud"]
 
-    # SAVE FEATURE COLUMNS
+   
     feature_cols = X.columns.tolist()
 
     joblib.dump(feature_cols, "model/feature_columns.pkl")

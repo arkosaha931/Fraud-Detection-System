@@ -19,7 +19,6 @@ app = Flask(__name__)
 CORS(app)
 
 
-
 PAYMENT_TYPE_MAP = {
     "Google Pay":    "TRANSFER",
     "PhonePe":       "TRANSFER",
@@ -34,11 +33,7 @@ PAYMENT_TYPE_MAP = {
     "DEBIT":         "DEBIT"
 }
 
-
-
 PAYSIM_STEP_MAX = 744
-
-
 
 
 print("\nLoading Fraud Detection Models...")
@@ -75,12 +70,9 @@ best_threshold = joblib.load(
 print(f"✅ Models Loaded Successfully")
 print(f"   Best threshold : {best_threshold:.4f}")
 
-
-
 NN_WEIGHT      = 0.65
 ISO_WEIGHT     = 0.15
 FEATURE_WEIGHT = 0.20
-
 
 SAFE_ZONE       = max(0.30, best_threshold * 0.65)
 SUSPICIOUS_ZONE = min(0.85, best_threshold * 1.55)
@@ -91,32 +83,28 @@ print(f"   Fraud zone      : > {SUSPICIOUS_ZONE:.4f}")
 
 
 
+
 def compute_feature_score(features):
 
     score = 0.0
 
-    # Full account drain — strongest single signal
     if features["account_drained"] == 1:
         score += 0.35
 
-    # Amount vs balance ratio
     if features["extreme_amount_ratio"] == 1:
         score += 0.20
     elif features["high_amount_ratio"] == 1:
         score += 0.12
 
-    # Balance integrity (external manipulation signal)
     if features["orig_balance_mismatch"] == 1:
         score += 0.15
 
     if features["dest_balance_mismatch"] == 1:
         score += 0.12
 
-    # Receiver balance unchanged after transfer
     if features["dest_no_increase"] == 1:
         score += 0.12
 
-    # Behavioral / contextual
     if features["device_risk"] == 1:
         score += 0.12
 
@@ -124,6 +112,123 @@ def compute_feature_score(features):
         score += 0.10
 
     return float(np.clip(score, 0.0, 1.0))
+
+
+
+
+def analyze_risk_flags(features, amount, oldbalanceOrg):
+
+    flags  = {}
+    detail = {}
+    r = features["amount_ratio"]
+
+    if features["account_drained"] == 1:
+        flags["account_drained"] = True
+        detail["account_drained"] = "Full account drain"
+
+    if features["extreme_amount_ratio"] == 1:
+        flags["extreme_amount_ratio"] = True
+        detail["extreme_amount_ratio"] = f"Extreme ratio {r:.2f} — >95% of balance"
+    elif features["high_amount_ratio"] == 1:
+        flags["high_amount_ratio"] = True
+        detail["high_amount_ratio"] = f"High ratio {r:.2f} — >75% of balance"
+
+    if features["orig_balance_mismatch"] == 1:
+        flags["orig_balance_mismatch"] = True
+        detail["orig_balance_mismatch"] = "Sender balance does not reconcile"
+
+    if features["dest_balance_mismatch"] == 1:
+        flags["dest_balance_mismatch"] = True
+        detail["dest_balance_mismatch"] = "Receiver balance does not reconcile"
+
+    if features["dest_no_increase"] == 1:
+        flags["dest_no_increase"] = True
+        detail["dest_no_increase"] = "Receiver balance did not increase after transfer"
+
+    if features["device_risk"] == 1:
+        flags["device_risk"] = True
+        detail["device_risk"] = "High-value TRANSFER/CASH_OUT on risky channel"
+
+    if features["location_risk"] == 1:
+        flags["location_risk"] = True
+        detail["location_risk"] = "Night-time transaction with high amount ratio"
+
+    if features["is_night_transaction"] == 1:
+        flags["is_night_transaction"] = True
+        detail["is_night_transaction"] = "Transaction between 10 PM – 6 AM"
+
+    if amount >= 50000 and r >= 0.40:
+        flags["large_partial_drain"] = True
+        detail["large_partial_drain"] = (
+            f"Large amount Rs{amount:,.0f} with {r*100:.1f}% of balance"
+        )
+
+    if amount >= 100000:
+        flags["very_large_amount"] = True
+        detail["very_large_amount"] = f"Very large transaction: Rs{amount:,.0f}"
+
+    return flags, detail
+
+
+
+
+def compute_behavioral_floor(flags, features):
+
+    floor = 0.0
+
+    drain_signals = sum([
+        flags.get("account_drained",      False),
+        flags.get("extreme_amount_ratio", False),
+        flags.get("high_amount_ratio",    False),
+    ])
+
+    integrity_signals = sum([
+        flags.get("orig_balance_mismatch", False),
+        flags.get("dest_balance_mismatch", False),
+        flags.get("dest_no_increase",      False),
+    ])
+
+    behavioral_signals = sum([
+        flags.get("device_risk",          False),
+        flags.get("location_risk",        False),
+        flags.get("is_night_transaction", False),
+        flags.get("large_partial_drain",  False),
+        flags.get("very_large_amount",    False),
+    ])
+
+    total = drain_signals + integrity_signals + behavioral_signals
+
+    
+    if total >= 3:
+        floor = max(floor, 0.42)
+
+    if total >= 4:
+        floor = max(floor, 0.56)
+
+   
+    if drain_signals >= 1 and behavioral_signals >= 1:
+        floor = max(floor, 0.52)
+
+    
+    if features["extreme_amount_ratio"] == 1 and features["account_drained"] == 0:
+        floor = max(floor, 0.44)
+
+    
+    if flags.get("large_partial_drain") and flags.get("is_night_transaction"):
+        floor = max(floor, 0.48)
+
+    # Balance integrity failures
+    if integrity_signals >= 2:
+        floor = max(floor, 0.54)
+
+    if integrity_signals >= 1 and drain_signals >= 1:
+        floor = max(floor, 0.62)
+
+    
+    if features["account_drained"] == 1:
+        floor = max(floor, SUSPICIOUS_ZONE + 0.05)
+
+    return float(floor)
 
 
 
@@ -139,26 +244,17 @@ def compute_features(
     transaction_hour
 ):
 
-    
-
     is_night_transaction = int(
         transaction_hour >= 22 or transaction_hour <= 6
     )
 
-
-    amount_ratio = amount / (oldbalanceOrg + 1)
-
-    high_amount_ratio = int(amount_ratio > 0.75)
-
+    amount_ratio         = amount / (oldbalanceOrg + 1)
+    high_amount_ratio    = int(amount_ratio > 0.75)
     extreme_amount_ratio = int(amount_ratio > 0.95)
-
-
 
     log_amount         = np.log1p(amount)
     log_oldbalanceOrg  = np.log1p(oldbalanceOrg)
     log_newbalanceOrig = np.log1p(newbalanceOrig)
-
-   
 
     orig_balance_mismatch = int(
         abs(newbalanceOrig - (oldbalanceOrg - amount)) > 1
@@ -167,7 +263,6 @@ def compute_features(
     dest_balance_mismatch = int(
         abs(newbalanceDest - (oldbalanceDest + amount)) > 1
     )
-
 
     zero_balance_orig = int(oldbalanceOrg == 0)
 
@@ -178,8 +273,6 @@ def compute_features(
     zero_balance_dest = int(oldbalanceDest == 0)
 
     dest_no_increase = int(newbalanceDest <= oldbalanceDest)
-
-  
 
     try:
         type_name = encoder.inverse_transform([encoded_type])[0]
@@ -195,8 +288,6 @@ def compute_features(
         is_night_transaction == 1 and
         amount_ratio > 0.45
     )
-
-   
 
     features = {
         "step":                   step,
@@ -228,6 +319,8 @@ def compute_features(
     return features
 
 
+
+
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
@@ -250,7 +343,7 @@ def predict():
         amount           = float(data.get("amount", 0))
         payment_type_raw = data.get("type", "PAYMENT")
 
-      
+        # ---- FETCH ACCOUNTS ----
 
         sender = accounts_collection.find_one({
             "account_number": sender_account
@@ -272,7 +365,7 @@ def predict():
                 "message": "Receiver account not found"
             })
 
-        
+        # ---- PIN VALIDATION ----
 
         if str(sender["pin"]) != str(pin):
             return jsonify({
@@ -283,6 +376,7 @@ def predict():
         oldbalanceOrg  = float(sender["balance"])
         oldbalanceDest = float(receiver["balance"])
 
+        # ---- AMOUNT VALIDATION ----
 
         if amount <= 0:
             return jsonify({
@@ -297,12 +391,12 @@ def predict():
                 "balance": oldbalanceOrg
             })
 
-        
+        # ---- UPDATED BALANCES ----
 
         newbalanceOrig = oldbalanceOrg  - amount
         newbalanceDest = oldbalanceDest + amount
 
-      
+        # ---- PAYMENT TYPE ENCODING ----
 
         payment_type_mapped = PAYMENT_TYPE_MAP.get(
             payment_type_raw, "PAYMENT"
@@ -312,13 +406,13 @@ def predict():
             encoder.transform([payment_type_mapped])[0]
         )
 
-    
+       
 
         now              = datetime.now()
         step             = int((now.timestamp() // 3600) % PAYSIM_STEP_MAX) + 1
         transaction_hour = now.hour
 
-      
+       
 
         features_dict = compute_features(
             sender_account,
@@ -332,7 +426,7 @@ def predict():
             transaction_hour
         )
 
-       
+        # ---- BUILD INPUT DATAFRAME ----
 
         input_df = pd.DataFrame([features_dict])
 
@@ -343,11 +437,12 @@ def predict():
 
         input_scaled = scaler.transform(input_df)
 
+        # ---- NEURAL NETWORK SCORE ----
 
         nn_raw   = float(model.predict(input_scaled, verbose=0)[0][0])
         nn_score = float(np.clip(nn_raw, 0.0, 1.0))
 
-        
+        # ---- ISOLATION FOREST SCORE ----
 
         iso_raw   = float(isolation_forest.score_samples(input_scaled)[0])
         iso_min   = float(iso_norm_params["min"])
@@ -361,23 +456,33 @@ def predict():
             )
         )
 
-        
+        # ---- FEATURE SCORE ----
 
         feature_score = compute_feature_score(features_dict)
 
-        fraud_probability = float(
-            np.clip(
-                (NN_WEIGHT      * nn_score)     +
-                (ISO_WEIGHT     * iso_score)    +
-                (FEATURE_WEIGHT * feature_score),
-                0.0,
-                1.0
-            )
+        # ---- RISK FLAGS ----
+
+        risk_flags, risk_detail = analyze_risk_flags(
+            features_dict, amount, oldbalanceOrg
         )
 
-        fraud_probability = round(fraud_probability, 4)
+        # ---- BEHAVIORAL FLOOR ----
 
-      
+        behavioral_floor = compute_behavioral_floor(risk_flags, features_dict)
+
+       
+
+        raw_score = float(np.clip(
+            (NN_WEIGHT      * nn_score)  +
+            (ISO_WEIGHT     * iso_score) +
+            (FEATURE_WEIGHT * feature_score),
+            0.0,
+            1.0
+        ))
+
+        fraud_probability = round(max(raw_score, behavioral_floor), 4)
+
+        # ---- DECISION ENGINE ----
 
         if fraud_probability < SAFE_ZONE:
             status = "safe"
@@ -386,7 +491,10 @@ def predict():
         else:
             status = "fraud"
 
-    
+        # ---- CONSOLE LOG ----
+
+        active_flags = [k for k, v in risk_flags.items() if v]
+
         print("\n" + "="*60)
         print("TRANSACTION ANALYSIS")
         print("="*60)
@@ -398,23 +506,27 @@ def predict():
         print(f"amount_ratio          : {features_dict['amount_ratio']:.4f}")
         print(f"step (mapped)         : {step}")
         print(f"transaction_hour      : {transaction_hour}")
-        print(f"account_drained       : {features_dict['account_drained']}")
-        print(f"extreme_amount_ratio  : {features_dict['extreme_amount_ratio']}")
-        print(f"orig_balance_mismatch : {features_dict['orig_balance_mismatch']}")
-        print(f"dest_no_increase      : {features_dict['dest_no_increase']}")
-        print(f"device_risk           : {features_dict['device_risk']}")
-        print(f"nn_raw                : {nn_raw:.8f}")
-        print(f"nn_score              : {nn_score:.4f}")
-        print(f"iso_raw               : {iso_raw:.4f}")
-        print(f"iso_score             : {iso_score:.4f}")
-        print(f"feature_score         : {feature_score:.4f}")
-        print(f"fraud_probability     : {fraud_probability}")
-        print(f"best_threshold        : {best_threshold:.4f}")
-        print(f"safe_zone             : {SAFE_ZONE:.4f}")
-        print(f"suspicious_zone       : {SUSPICIOUS_ZONE:.4f}")
-        print(f"status                : {status}")
+        print(f"--- Risk Flags ---")
+        for flag in active_flags:
+            print(f"  ✦ {flag:28s} : {risk_detail[flag]}")
+        if not active_flags:
+            print("  (none)")
+        print(f"--- Scores ---")
+        print(f"  nn_raw              : {nn_raw:.8f}")
+        print(f"  nn_score            : {nn_score:.4f}")
+        print(f"  iso_score           : {iso_score:.4f}")
+        print(f"  feature_score       : {feature_score:.4f}")
+        print(f"  raw_score           : {raw_score:.4f}")
+        print(f"  behavioral_floor    : {behavioral_floor:.4f}")
+        print(f"  fraud_probability   : {fraud_probability}")
+        print(f"--- Decision ---")
+        print(f"  best_threshold      : {best_threshold:.4f}")
+        print(f"  safe_zone           : {SAFE_ZONE:.4f}")
+        print(f"  suspicious_zone     : {SUSPICIOUS_ZONE:.4f}")
+        print(f"  status              : {status}")
         print("="*60)
 
+       
 
         if status == "fraud":
 
@@ -426,6 +538,7 @@ def predict():
                 "amount":            amount,
                 "type":              payment_type_raw,
                 "fraud_probability": fraud_probability,
+                "risk_flags":        active_flags,
                 "status":            "fraud",
                 "timestamp":         datetime.now()
             })
@@ -437,11 +550,11 @@ def predict():
                 "nn_score":          round(nn_score, 6),
                 "iso_score":         round(iso_score, 4),
                 "feature_score":     round(feature_score, 4),
+                "risk_flags":        active_flags,
                 "balance":           round(oldbalanceOrg, 2)
             })
 
-       
-
+        
         accounts_collection.update_one(
             {"account_number": sender_account},
             {"$set": {"balance": round(newbalanceOrig, 2)}}
@@ -452,13 +565,14 @@ def predict():
             {"$set": {"balance": round(newbalanceDest, 2)}}
         )
 
-
+        
         transactions_collection.insert_one({
             "sender_account":    sender_account,
             "receiver_account":  receiver_account,
             "amount":            amount,
             "type":              payment_type_raw,
             "fraud_probability": fraud_probability,
+            "risk_flags":        active_flags,
             "status":            status,
             "timestamp":         datetime.now()
         })
@@ -480,6 +594,8 @@ def predict():
                 round(iso_score, 4),
             "feature_score":
                 round(feature_score, 4),
+            "risk_flags":
+                active_flags,
             "balance":
                 round(newbalanceOrig, 2),
             "receiver_balance":
@@ -497,6 +613,7 @@ def predict():
             "status":  "error",
             "message": str(e)
         })
+
 
 
 
